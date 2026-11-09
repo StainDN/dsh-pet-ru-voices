@@ -1,10 +1,11 @@
 # dsh-pet: русские голоса, локализация и офлайн-голос
 
-Три независимых патча к [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) **0.4.3**:
+Четыре независимых патча к [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) **0.4.3**:
 
 1. **Русские голоса Edge** — чтобы питомец мог говорить по-русски, а не только по-китайски.
 2. **Русская локализация меню** — правый клик по питомцу и подписи горячих клавиш в desktop-helper.
 3. **Локальный голос (Windows SAPI)** — офлайн-резерв на случай, когда Edge недоступен (нет VPN, 429, нет сети).
+4. **Локальный нейроголос Piper** — тот же офлайн, но нормальным голосом; ставится поверх SAPI-резерва.
 
 Каждый патч ставится своим скриптом (с бэкапом и откатом) либо обычным diff-файлом.
 
@@ -141,6 +142,53 @@ node tools/apply-sapi-voice.mjs --revert   # вернуть как было
 
 ---
 
+## 4. Локальный нейроголос Piper
+
+### Проблема
+
+SAPI разборчив, но звучит как «настольный голос из 2010-х» — слушать неприятно.
+
+### Что делает патч
+
+- создаёт venv и ставит `piper-tts` (+ onnxruntime), качает русскую модель `ru_RU-irina-medium`
+  (~63 МБ) с HuggingFace;
+- кладёт `piper_serve.py` — постоянный процесс: модель грузится один раз (~5 с), дальше каждая
+  фраза синтезируется за **0,1–0,2 с**;
+- в `lib/index.js` меняет порядок каналов: **Piper → SAPI → Edge**.
+
+### Требования
+
+- Python 3.9+ в PATH — только на время установки;
+- ~110 МБ на диске (venv + модель), интернет — только при установке;
+- дальше всё офлайн, VPN не нужен.
+
+### Установка
+
+```powershell
+node tools/apply-piper-voice.mjs --dry-run
+node tools/apply-piper-voice.mjs                   # женский голос irina
+node tools/apply-piper-voice.mjs --voice dmitri    # мужской
+node tools/apply-piper-voice.mjs --revert          # откатить патч бандла
+```
+
+| Опция | Значение |
+|---|---|
+| `--voice irina\|dmitri` | какую модель скачать (по умолчанию irina) |
+| `--skip-setup` | не создавать venv и не качать модель (если уже есть) |
+| `--package <path>` | путь к установленному `dsh-pet` |
+| `--user-data <path>` | куда ставить piper (по умолчанию `%USERPROFILE%\.dsh\dsh-pet`) |
+| `--dry-run` | только показать план |
+| `--revert` | откатить патч бандла (venv и модель остаются) |
+
+**После установки полностью перезапустите DSH.** Первая фраза — ~5–6 с (загрузка модели), дальше мгновенно.
+
+### Голоса
+
+Модель выбирается по `voiceName` из настроек питомца: если в нём есть «Dmitry» и скачан
+`ru_RU-dmitri-medium.onnx` — берётся он, иначе `ru_RU-irina-medium`.
+
+---
+
 ## Применение через патчи
 
 Если скрипты не подходят, те же изменения лежат в `patches/` (из корня пакета `dsh-pet`):
@@ -154,11 +202,13 @@ git -c core.autocrlf=false apply -p1 patches/helper-sprite.patch
 git -c core.autocrlf=false apply -p1 patches/local-sapi.patch
 git -c core.autocrlf=false apply -p1 patches/local-sapi-edge-ts.patch
 git -c core.autocrlf=false apply -p1 patches/local-sapi-route-ts.patch
+git -c core.autocrlf=false apply -p1 patches/local-piper.patch
 ```
 
-`local-sapi*` сгенерированы от состояния «русские голоса уже добавлены»; на чистый 0.4.3 они тоже
-накладываются, но надёжнее применять их после `lib-index.patch`. Скрипт `apply-sapi-voice.mjs`
-дополнительно ставит `sapi/tts.ps1` — без него патч бесполезен.
+`local-sapi*` сгенерированы от состояния «русские голоса уже добавлены», `local-piper.patch` — уже
+от состояния «SAPI добавлен». На чистый 0.4.3 они тоже накладываются, но надёжнее соблюдать порядок:
+`lib-index` → `local-sapi` → `local-piper`. Скрипт `apply-sapi-voice.mjs` дополнительно ставит
+`sapi/tts.ps1`, `apply-piper-voice.mjs` — venv, модель и `piper_serve.py`; без них патчи бесполезны.
 
 `-c core.autocrlf=false` обязателен: иначе git запишет файлы с CRLF и они перестанут совпадать
 с оригиналом побайтово.

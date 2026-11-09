@@ -1,0 +1,107 @@
+diff --git a/lib/index.js b/lib/index.js
+index 06ae878..8d34db0 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -8872,7 +8872,102 @@ async function synthesizeSapi({ text, target }) {
+ 	}
+ }
+ 
++
++/** Локальный нейроголос Piper: постоянный процесс, модель грузится один раз (~5 с), фраза ~0.1-0.2 с. */
++const PIPER_BOOT_TIMEOUT_MS = 40e3;
++const PIPER_TIMEOUT_MS = 15e3;
++const PIPER_COOLDOWN_MS = 6e5;
++let piperChild = null;
++let piperSeq = 0;
++let piperDownUntil = 0;
++const piperPending = new Map();
++function piperPaths(voice) {
++	const root = join(process.env.DSH_HOME || join(homedir(), ".dsh"), "dsh-pet", "piper");
++	const python = process.env.DSH_PET_PIPER_PYTHON || join(root, "venv", "Scripts", "python.exe");
++	const script = process.env.DSH_PET_PIPER_SERVER || join(root, "piper_serve.py");
++	const female = join(root, "voices", "ru_RU-irina-medium.onnx");
++	const male = join(root, "voices", "ru_RU-dmitri-medium.onnx");
++	const wantsMale = /dmitry|dmitri/i.test(String(voice || ""));
++	const model = wantsMale && existsSync(male) ? male : female;
++	return { python, script, model, modelDir: join(root, "voices") };
++}
++function ensurePiper(voice) {
++	if (piperChild) return piperChild;
++	const { python, script, model } = piperPaths(voice);
++	if (!existsSync(python) || !existsSync(script) || !existsSync(model)) return null;
++	const child = spawn(python, [script, "--model", model], {
++		windowsHide: true,
++		env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" }
++	});
++	piperChild = child;
++	let buffer = "";
++	const fail = (error) => {
++		if (piperChild === child) piperChild = null;
++		for (const pending of piperPending.values()) {
++			clearTimeout(pending.timer);
++			pending.reject(error);
++		}
++		piperPending.clear();
++	};
++	child.stdout.setEncoding("utf8");
++	child.stdout.on("data", (chunk) => {
++		buffer += chunk;
++		let index = buffer.indexOf("\n");
++		while (index >= 0) {
++			const line = buffer.slice(0, index).trim();
++			buffer = buffer.slice(index + 1);
++			index = buffer.indexOf("\n");
++			if (!line) continue;
++			let message;
++			try {
++				message = JSON.parse(line);
++			} catch {
++				continue;
++			}
++			const pending = piperPending.get(message.id);
++			if (!pending) continue;
++			piperPending.delete(message.id);
++			clearTimeout(pending.timer);
++			if (message.ok) pending.resolve();
++			else pending.reject(new Error("piper: " + String(message.error || "failed")));
++		}
++	});
++	child.on("error", fail);
++	child.on("exit", () => fail(new Error("piper: exited")));
++	child.stdin.on("error", () => {});
++	return child;
++}
++async function synthesizePiper({ text, voice, target }) {
++	const child = ensurePiper(voice);
++	if (!child) throw new Error("piper: not installed");
++	const staging = target + ".part";
++	const id = ++piperSeq;
++	const timeout = id === 1 ? PIPER_BOOT_TIMEOUT_MS : PIPER_TIMEOUT_MS;
++	await new Promise((resolvePromise, rejectPromise) => {
++		const timer = setTimeout(() => {
++			piperPending.delete(id);
++			rejectPromise(new Error("piper: timeout"));
++		}, timeout);
++		piperPending.set(id, { resolve: resolvePromise, reject: rejectPromise, timer });
++		child.stdin.write(JSON.stringify({ id, text, out: staging }) + "\n");
++	});
++	const info = await stat(staging);
++	if (!info.size) throw new Error("piper: empty audio");
++	await rename(staging, target);
++}
++async function synthesizePiperSafe(input) {
++	if (Date.now() < piperDownUntil) return false;
++	try {
++		await synthesizePiper(input);
++		return true;
++	} catch {
++		piperDownUntil = Date.now() + PIPER_COOLDOWN_MS;
++		return false;
++	}
++}
++
+ async function synthesize({ signal, text, voice, rate, target }) {
++	if (await synthesizePiperSafe({ text, voice, target })) return;
+ 	if (Date.now() < edgeDownUntil) {
+ 		try {
+ 			await synthesizeSapi({ text, target });
