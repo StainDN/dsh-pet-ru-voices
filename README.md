@@ -1,9 +1,10 @@
-# dsh-pet: русские голоса и локализация меню
+# dsh-pet: русские голоса, локализация и офлайн-голос
 
-Два независимых патча к [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) **0.4.3**:
+Три независимых патча к [dsh-pet](https://github.com/PC2005-cloud/dsh-pet) **0.4.3**:
 
 1. **Русские голоса Edge** — чтобы питомец мог говорить по-русски, а не только по-китайски.
 2. **Русская локализация меню** — правый клик по питомцу и подписи горячих клавиш в desktop-helper.
+3. **Локальный голос (Windows SAPI)** — офлайн-резерв на случай, когда Edge недоступен (нет VPN, 429, нет сети).
 
 Каждый патч ставится своим скриптом (с бэкапом и откатом) либо обычным diff-файлом.
 
@@ -89,6 +90,57 @@ node tools/apply-ru-menu.mjs --revert    # откатить
 
 ---
 
+## 3. Локальный голос (Windows SAPI)
+
+### Проблема
+
+Edge TTS живёт в интернете: без VPN в РФ он отвечает `429` или молчит — питомец замолкает, хотя
+все настройки включены.
+
+### Что делает патч
+
+- ставит `~/.dsh/dsh-pet/sapi/tts.ps1` — синтез через SAPI (голоса, установленные в Windows;
+  на русской Windows это «Microsoft Irina Desktop — Russian»);
+- в `lib/index.js` добавляет `synthesizeSapi()` и логику выбора канала:
+  - Edge пробуется с таймаутом **4 с**;
+  - если не ответил — сразу локальный голос, а Edge не трогаем **10 минут** (чтобы не ждать таймаут каждую фразу);
+  - при следующей попытке (через 10 минут) снова сначала Edge — если VPN включён, вернётся нейроголос;
+- учит `/voice/speak` отдавать правильный `Content-Type`: WAV от SAPI, MP3 от Edge (по сигнатуре файла).
+
+Кэш общий: уже озвученные фразы проигрываются мгновенно независимо от канала.
+
+### Требования
+
+- Windows с хотя бы одним голосом SAPI (проверить: `Get-ChildItem` в реестре или
+  `powershell -c "(New-Object -ComObject SAPI.SpVoice).GetVoices() | % { $_.GetDescription() }"`).
+- Ничего скачивать не нужно, интернет не нужен.
+
+### Установка
+
+```powershell
+node tools/apply-sapi-voice.mjs --dry-run
+node tools/apply-sapi-voice.mjs
+node tools/apply-sapi-voice.mjs --revert   # вернуть как было
+```
+
+| Опция | Значение |
+|---|---|
+| `--package <path>` | путь к установленному `dsh-pet` |
+| `--user-data <path>` | куда положить `sapi/tts.ps1` (по умолчанию `%USERPROFILE%\.dsh\dsh-pet`) |
+| `--dry-run` | только показать план |
+| `--revert` | откатить последнюю установку |
+
+**После установки полностью перезапустите DSH.**
+
+### Ограничения
+
+- Голос «настольный», без эмоций; на не-русской Windows нужен установленный русский голос SAPI,
+  иначе будет читать английским.
+- Задержка на фразу ~0,6–0,8 с (в основном запуск PowerShell), но только когда Edge недоступен:
+  при живом Edge фраза идёт через него.
+
+---
+
 ## Применение через патчи
 
 Если скрипты не подходят, те же изменения лежат в `patches/` (из корня пакета `dsh-pet`):
@@ -99,7 +151,14 @@ git -c core.autocrlf=false apply -p1 patches/src-voices.patch
 git -c core.autocrlf=false apply -p1 patches/helper-menu.patch
 git -c core.autocrlf=false apply -p1 patches/helper-shared-core.patch
 git -c core.autocrlf=false apply -p1 patches/helper-sprite.patch
+git -c core.autocrlf=false apply -p1 patches/local-sapi.patch
+git -c core.autocrlf=false apply -p1 patches/local-sapi-edge-ts.patch
+git -c core.autocrlf=false apply -p1 patches/local-sapi-route-ts.patch
 ```
+
+`local-sapi*` сгенерированы от состояния «русские голоса уже добавлены»; на чистый 0.4.3 они тоже
+накладываются, но надёжнее применять их после `lib-index.patch`. Скрипт `apply-sapi-voice.mjs`
+дополнительно ставит `sapi/tts.ps1` — без него патч бесполезен.
 
 `-c core.autocrlf=false` обязателен: иначе git запишет файлы с CRLF и они перестанут совпадать
 с оригиналом побайтово.

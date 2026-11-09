@@ -1,0 +1,127 @@
+diff --git a/src/host/voice/edge.ts b/src/host/voice/edge.ts
+index 425a1b8..1290c81 100644
+--- a/src/host/voice/edge.ts
++++ b/src/host/voice/edge.ts
+@@ -10,7 +10,11 @@
+  * 不负责缓存与队列：本模块只保证「给定文本 → 一个 mp3 文件」这一件事。
+  * @module dsh-pet/src/host/voice/edge
+  */
+-import { rename, rm, writeFile } from 'node:fs/promises';
++import { existsSync } from 'node:fs';
++import { rename, rm, stat, writeFile } from 'node:fs/promises';
++import { spawn } from 'node:child_process';
++import { homedir } from 'node:os';
++import { join } from 'node:path';
+ 
+ /** 依赖的模块形状：运行时代码只出现在按需 import 处。 */
+ type EdgeTtsModule = typeof import('@andresaya/edge-tts');
+@@ -49,7 +53,82 @@ export interface SynthInput {
+  * @param input - 文本、音色、语速与目标路径。
+  * @throws {VoiceSynthError} 上游失败、超时或写盘失败时。
+  */
++
++/** Локальный резерв синтеза: Windows SAPI (голоса системы, интернет не нужен). */
++const SAPI_TIMEOUT_MS = 15_000;
++const EDGE_TIMEOUT_MS = 4_000;
++const EDGE_COOLDOWN_MS = 10 * 60_000;
++
++/** Когда Edge снова можно пробовать: после неудачи держим паузу, чтобы не ждать таймаут каждую фразу. */
++let edgeDownUntil = 0;
++
++/** Путь к tts.ps1: env-переопределение, DSH_HOME, затем ~/.dsh. */
++function sapiScriptPath(): string | undefined {
++  const candidates: string[] = [];
++  if (process.env.DSH_PET_SAPI_SCRIPT) candidates.push(process.env.DSH_PET_SAPI_SCRIPT);
++  if (process.env.DSH_HOME) candidates.push(join(process.env.DSH_HOME, 'dsh-pet', 'sapi', 'tts.ps1'));
++  candidates.push(join(homedir(), '.dsh', 'dsh-pet', 'sapi', 'tts.ps1'));
++  return candidates.find((file) => existsSync(file));
++}
++
++/** Синтез через SAPI: текст в файл, powershell рисует WAV, результат кладём в target. */
++async function synthesizeSapi(input: { text: string; target: string }): Promise<void> {
++  const script = sapiScriptPath();
++  if (!script) throw new Error('sapi: script not found');
++  const textFile = input.target + '.txt';
++  const staging = input.target + '.part';
++  await writeFile(textFile, input.text, 'utf8');
++  try {
++    await new Promise<void>((resolvePromise, rejectPromise) => {
++      const child = spawn(
++        'powershell.exe',
++        [
++          '-NoProfile',
++          '-NonInteractive',
++          '-STA',
++          '-ExecutionPolicy',
++          'Bypass',
++          '-File',
++          script,
++          '-TextFile',
++          textFile,
++          '-OutFile',
++          staging,
++        ],
++        { windowsHide: true },
++      );
++      const timer = setTimeout(() => {
++        child.kill();
++        rejectPromise(new Error('sapi: timeout'));
++      }, SAPI_TIMEOUT_MS);
++      child.on('error', (error) => {
++        clearTimeout(timer);
++        rejectPromise(error);
++      });
++      child.on('exit', (code) => {
++        clearTimeout(timer);
++        if (code === 0) resolvePromise();
++        else rejectPromise(new Error('sapi: exit ' + String(code)));
++      });
++    });
++    const info = await stat(staging);
++    if (!info.size) throw new Error('sapi: empty audio');
++    await rename(staging, input.target);
++  } finally {
++    await rm(textFile, { force: true }).catch(() => undefined);
++    await rm(staging, { force: true }).catch(() => undefined);
++  }
++}
++
+ export async function synthesize({ signal, text, voice, rate, target }: SynthInput): Promise<void> {
++  if (Date.now() < edgeDownUntil) {
++    try {
++      await synthesizeSapi({ text, target });
++      return;
++    } catch {
++      // локальный голос не сработал — идём в Edge
++    }
++  }
+   const staging = `${target}.part`;
+   try {
+     // 按需加载：包缺失时这里抛 MODULE_NOT_FOUND，由下面统一归成 VoiceSynthError。
+@@ -58,11 +137,24 @@ export async function synthesize({ signal, text, voice, rate, target }: SynthInp
+     const EdgeTTS = mod.EdgeTTS ?? mod.default?.EdgeTTS;
+     if (!EdgeTTS) throw new VoiceSynthError('依赖未导出 EdgeTTS');
+     const tts = new EdgeTTS();
+-    const result = await tts.generate(text, voice, { rate, signal, timeout: SYNTHESIS_TIMEOUT_MS });
++    const result = await tts.generate(text, voice, {
++      rate,
++      signal: AbortSignal.timeout(EDGE_TIMEOUT_MS),
++      timeout: EDGE_TIMEOUT_MS,
++    });
+     await writeFile(staging, result.audio);
+     await rename(staging, target);
+   } catch (error) {
+     await rm(staging, { force: true }).catch(() => undefined);
+-    throw new VoiceSynthError(error instanceof Error ? error.message : String(error));
++    edgeDownUntil = Date.now() + EDGE_COOLDOWN_MS;
++    // Edge недоступен (нет интернета / 429) — говорим локальным голосом.
++    try {
++      await synthesizeSapi({ text, target });
++      return;
++    } catch (sapiError) {
++      const primary = error instanceof Error ? error.message : String(error);
++      const local = sapiError instanceof Error ? sapiError.message : String(sapiError);
++      throw new VoiceSynthError(primary + '; sapi: ' + local);
++    }
+   }
+ }

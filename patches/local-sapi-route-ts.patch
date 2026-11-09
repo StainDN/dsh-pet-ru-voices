@@ -1,0 +1,31 @@
+diff --git a/src/host/routes/voice.ts b/src/host/routes/voice.ts
+index 0aef32d..2ece5e6 100644
+--- a/src/host/routes/voice.ts
++++ b/src/host/routes/voice.ts
+@@ -8,6 +8,7 @@
+ import type { RouteResult } from '../http.ts';
+ import type { PetRouteDeps, RouteInput } from './types.ts';
+ import { failResult, invalidJson, methodNotAllowed, okResult } from './result.ts';
++import { readFileSync } from 'node:fs';
+ 
+ /** 语音领域：未命中返回 undefined，命中返回应答。 */
+ export async function handleVoiceRoutes(deps: PetRouteDeps, input: RouteInput): Promise<RouteResult | undefined> {
+@@ -28,7 +29,17 @@ export async function handleVoiceRoutes(deps: PetRouteDeps, input: RouteInput):
+     }
+     const result = await deps.voice.speak(parsed);
+     if (!result.ok) return failResult(result.reason, result.message);
+-    return { kind: 'file', file: result.file, contentType: 'audio/mpeg' };
++    // Edge отдаёт mp3, локальный SAPI — WAV: Content-Type по сигнатуре файла.
++    let contentType = 'audio/mpeg';
++    try {
++      const head = readFileSync(result.file);
++      if (head.length >= 12 && head.toString('latin1', 0, 4) === 'RIFF' && head.toString('latin1', 8, 12) === 'WAVE') {
++        contentType = 'audio/wav';
++      }
++    } catch {
++      // файл не прочитать — оставляем mp3, клиент снифает контейнер сам
++    }
++    return { kind: 'file', file: result.file, contentType };
+   }
+ 
+   // 与 /voice/speak 反向：音频进、文字出。格式由宿主 provider 校验，这里只转发结论。

@@ -1,0 +1,119 @@
+diff --git a/lib/index.js b/lib/index.js
+index 22f830c..06ae878 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -5238,10 +5238,15 @@ async function handleVoiceRoutes(deps, input) {
+ 		}
+ 		const result = await deps.voice.speak(parsed);
+ 		if (!result.ok) return failResult(result.reason, result.message);
++		let contentType = "audio/mpeg";
++		try {
++			const head = readFileSync(result.file);
++			if (head.length >= 12 && head.toString("latin1", 0, 4) === "RIFF" && head.toString("latin1", 8, 12) === "WAVE") contentType = "audio/wav";
++		} catch {}
+ 		return {
+ 			kind: "file",
+ 			file: result.file,
+-			contentType: "audio/mpeg"
++			contentType
+ 		};
+ 	}
+ 	if (rest === "voice/hear") {
+@@ -8810,7 +8815,70 @@ var VoiceSynthError = class extends Error {
+ 		this.name = "VoiceSynthError";
+ 	}
+ };
++
++/** Локальный резерв синтеза: Windows SAPI (голоса системы, интернет не нужен). */
++const SAPI_TIMEOUT_MS = 15e3;
++const EDGE_TIMEOUT_MS = 4e3;
++const EDGE_COOLDOWN_MS = 6e5;
++let edgeDownUntil = 0;
++function sapiScriptPath() {
++	const candidates = [];
++	if (process.env.DSH_PET_SAPI_SCRIPT) candidates.push(process.env.DSH_PET_SAPI_SCRIPT);
++	if (process.env.DSH_HOME) candidates.push(join(process.env.DSH_HOME, "dsh-pet", "sapi", "tts.ps1"));
++	candidates.push(join(homedir(), ".dsh", "dsh-pet", "sapi", "tts.ps1"));
++	return candidates.find((file) => existsSync(file));
++}
++async function synthesizeSapi({ text, target }) {
++	const script = sapiScriptPath();
++	if (!script) throw new Error("sapi: script not found");
++	const textFile = target + ".txt";
++	const staging = target + ".part";
++	await writeFile(textFile, text, "utf8");
++	try {
++		await new Promise((resolvePromise, rejectPromise) => {
++			const child = spawn("powershell.exe", [
++				"-NoProfile",
++				"-NonInteractive",
++				"-STA",
++				"-ExecutionPolicy",
++				"Bypass",
++				"-File",
++				script,
++				"-TextFile",
++				textFile,
++				"-OutFile",
++				staging
++			], { windowsHide: true });
++			const timer = setTimeout(() => {
++				child.kill();
++				rejectPromise(new Error("sapi: timeout"));
++			}, SAPI_TIMEOUT_MS);
++			child.on("error", (error) => {
++				clearTimeout(timer);
++				rejectPromise(error);
++			});
++			child.on("exit", (code) => {
++				clearTimeout(timer);
++				if (code === 0) resolvePromise();
++				else rejectPromise(new Error("sapi: exit " + code));
++			});
++		});
++		const info = await stat(staging);
++		if (!info.size) throw new Error("sapi: empty audio");
++		await rename(staging, target);
++	} finally {
++		await rm(textFile, { force: true }).catch(() => void 0);
++		await rm(staging, { force: true }).catch(() => void 0);
++	}
++}
++
+ async function synthesize({ signal, text, voice, rate, target }) {
++	if (Date.now() < edgeDownUntil) {
++		try {
++			await synthesizeSapi({ text, target });
++			return;
++		} catch {}
++	}
+ 	const staging = `${target}.part`;
+ 	try {
+ 		const mod = await import("@andresaya/edge-tts");
+@@ -8819,14 +8887,23 @@ async function synthesize({ signal, text, voice, rate, target }) {
+ 		const tts = new EdgeTTS();
+ 		const result = await tts.generate(text, voice, {
+ 			rate,
+-			signal,
+-			timeout: SYNTHESIS_TIMEOUT_MS
++			signal: AbortSignal.timeout(EDGE_TIMEOUT_MS),
++			timeout: EDGE_TIMEOUT_MS
+ 		});
+ 		await writeFile(staging, result.audio);
+ 		await rename(staging, target);
+ 	} catch (error) {
+ 		await rm(staging, { force: true }).catch(() => void 0);
+-		throw new VoiceSynthError(error instanceof Error ? error.message : String(error));
++		edgeDownUntil = Date.now() + EDGE_COOLDOWN_MS;
++		// Edge недоступен (нет интернета / 429) — говорим локальным голосом.
++		try {
++			await synthesizeSapi({ text, target });
++			return;
++		} catch (sapiError) {
++			const primary = error instanceof Error ? error.message : String(error);
++			const local = sapiError instanceof Error ? sapiError.message : String(sapiError);
++			throw new VoiceSynthError(primary + "; sapi: " + local);
++		}
+ 	}
+ }
+ 
