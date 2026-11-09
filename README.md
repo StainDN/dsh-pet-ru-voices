@@ -189,6 +189,34 @@ node tools/apply-piper-voice.mjs --revert          # откатить патч �
 
 ---
 
+## 5. Озвучка: чистка разметки и фраза в конце задачи
+
+Две правки, которые слышно.
+
+**Разметка.** Модель любит ролевые вставки — `*фыркает*`, `*прищуривается*` — и «тильду» в конце
+реплики (`~`). Раньше всё это уходило в синтез, и голос читал звёздочки и обрывки действий.
+Теперь перед синтезом работает `sanitizeForSpeech` (и в авто-озвучке `speechSlice`, и в ручной
+кнопке динамика `playManual`): действия вырезаются целиком, одиночные `*`, `~` и backticks
+убираются, пробелы схлопываются. Если после чистки пусто — остаются слова без звёздочек.
+
+**Финал задачи.** В конце задачи показывался только пузырь, без звука. Теперь терминальный статус
+(`success` / `error`) проговаривается фразой из `workStatusTexts` — с учётом переключателя
+«Озвучивание». Озвучиваются только финальные статусы, чтобы не болтала на каждый шаг.
+
+### Установка
+
+```powershell
+node tools/apply-speech-fixes.mjs --dry-run
+node tools/apply-speech-fixes.mjs
+node tools/apply-speech-fixes.mjs --revert
+```
+
+Меняет `runtime/electron-helper/shared-core.js`, `runtime/electron-helper/events.js`,
+`lib/client.js` и `src/shared/voice.ts`. После установки — перезапуск DSH или «Сохранить» в
+настройках питомца (helper перезапустится).
+
+---
+
 ## Применение через патчи
 
 Если скрипты не подходят, те же изменения лежат в `patches/` (из корня пакета `dsh-pet`):
@@ -203,6 +231,7 @@ git -c core.autocrlf=false apply -p1 patches/local-sapi.patch
 git -c core.autocrlf=false apply -p1 patches/local-sapi-edge-ts.patch
 git -c core.autocrlf=false apply -p1 patches/local-sapi-route-ts.patch
 git -c core.autocrlf=false apply -p1 patches/local-piper.patch
+git -c core.autocrlf=false apply -p1 patches/speech-fixes.patch
 ```
 
 `local-sapi*` сгенерированы от состояния «русские голоса уже добавлены», `local-piper.patch` — уже
@@ -213,7 +242,10 @@ git -c core.autocrlf=false apply -p1 patches/local-piper.patch
 `-c core.autocrlf=false` обязателен: иначе git запишет файлы с CRLF и они перестанут совпадать
 с оригиналом побайтово.
 
-Проверено: все пять патчей применяются к чистому `dsh-pet@0.4.3` и дают побайтово те же файлы,
+`speech-fixes.patch` независим от остальных: он про озвучку и накладывается на любой из состояний
+(чистый 0.4.3 тоже подходит).
+
+Проверено: все патчи применяются к чистому `dsh-pet@0.4.3` и дают побайтово те же файлы,
 что и скрипты.
 
 ---
