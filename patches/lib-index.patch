@@ -1,0 +1,23 @@
+﻿diff --git a/lib/index.js b/lib/index.js
+index 81ad993..22f830c 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -852,6 +852,18 @@ const VOICES = [
+ 		name: "云健",
+ 		tag: "男 · 沉稳",
+ 		default: false
++	},
++	{
++		id: "ru-RU-SvetlanaNeural",
++		name: "Светлана",
++		tag: "жен · русский",
++		default: false
++	},
++	{
++		id: "ru-RU-DmitryNeural",
++		name: "Дмитрий",
++		tag: "муж · русский",
++		default: false
+ 	}
+ ];
+ const DEFAULT_VOICE = "zh-CN-XiaoyiNeural";

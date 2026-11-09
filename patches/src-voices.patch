@@ -1,0 +1,13 @@
+﻿diff --git a/src/host/voice/voices.ts b/src/host/voice/voices.ts
+index f3a85ca..dc90ffa 100644
+--- a/src/host/voice/voices.ts
++++ b/src/host/voice/voices.ts
+@@ -20,6 +20,8 @@ export const VOICES: readonly VoiceInfo[] = [
+   { id: 'zh-CN-XiaoyiNeural', name: '晓伊', tag: '女 · 活泼', default: true },
+   { id: 'zh-CN-YunxiNeural', name: '云希', tag: '男 · 年轻', default: false },
+   { id: 'zh-CN-YunjianNeural', name: '云健', tag: '男 · 沉稳', default: false },
++  { id: 'ru-RU-SvetlanaNeural', name: 'Светлана', tag: 'жен · русский', default: false },
++  { id: 'ru-RU-DmitryNeural', name: 'Дмитрий', tag: 'муж · русский', default: false }
+ ];
+ 
+ /** 默认音色 id；请求与配置都没指定时用它，必须与 {@link VOICES} 里 `default` 标记的那个一致。 */
