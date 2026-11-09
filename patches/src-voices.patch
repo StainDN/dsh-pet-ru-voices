@@ -1,4 +1,4 @@
-﻿diff --git a/src/host/voice/voices.ts b/src/host/voice/voices.ts
+diff --git a/src/host/voice/voices.ts b/src/host/voice/voices.ts
 index f3a85ca..dc90ffa 100644
 --- a/src/host/voice/voices.ts
 +++ b/src/host/voice/voices.ts

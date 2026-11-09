@@ -1,0 +1,139 @@
+diff --git a/runtime/electron-helper/shared-core.js b/runtime/electron-helper/shared-core.js
+index a0c59cc..c4ab9e9 100644
+--- a/runtime/electron-helper/shared-core.js
++++ b/runtime/electron-helper/shared-core.js
+@@ -1180,7 +1180,7 @@ const DISPLAY_ORDER = [
+ 	"both",
+ 	"none"
+ ];
+-const DISPLAY_HOTKEY_HINTS = DISPLAY_ORDER.map((_, index) => String(index + 1) + " 键");
++const DISPLAY_HOTKEY_HINTS = DISPLAY_ORDER.map((_, index) => "клавиша " + String(index + 1));
+ function displayOfHotkey(e) {
+ 	for (let index = 0; index < DISPLAY_ORDER.length; index += 1) if (isBareKey(e, String(index + 1))) return DISPLAY_ORDER[index];
+ 	return void 0;
+@@ -1202,13 +1202,13 @@ const SLEEP_ALLOWED_ACTIONS = [
+ const isSleepAllowedAction = (action) => action !== void 0 && SLEEP_ALLOWED_ACTIONS.includes(action);
+ /** 四个显示位置的菜单文案；键是 {@link DISPLAY_ORDER} 的元素，顺序以那边为准。 */
+ const DISPLAY_LABELS = {
+-	web: "仅网页",
+-	desktop: "仅桌面",
+-	both: "两者",
+-	none: "都不"
++	web: "Только в окне",
++	desktop: "Только на столе",
++	both: "И там и там",
++	none: "Не показывать"
+ };
+ const displayMenuBranch = () => ({
+-	label: "显示位置",
++	label: "Где показывать",
+ 	children: DISPLAY_ORDER.map((display, index) => ({
+ 		label: DISPLAY_LABELS[display],
+ 		action: "set-display",
+@@ -1216,7 +1216,7 @@ const displayMenuBranch = () => ({
+ 		hint: DISPLAY_HOTKEY_HINTS[index]
+ 	}))
+ });
+-const MORE_MENU_LABEL = "更多";
++const MORE_MENU_LABEL = "Ещё";
+ function readMenuItems(data, surface$1) {
+ 	if (!data || typeof data !== "object") return [];
+ 	const items = data.items;
+@@ -1273,9 +1273,9 @@ function buildMoreBranch(items) {
+ }
+ /** 事件名 → 分类标签（无映射时用事件名本身）。 */
+ const EVENT_LABELS = {
+-	balance: "余额档位",
+-	whisper: "碎碎念",
+-	workStatus: "工作状态"
++	balance: "Баланс (уровни)",
++	whisper: "Болтовня",
++	workStatus: "Рабочие статусы"
+ };
+ const leaf = (anim) => ({
+ 	label: anim,
+@@ -1284,11 +1284,11 @@ const leaf = (anim) => ({
+ function buildMenuTree(animations) {
+ 	const groups = [];
+ 	const pools = [
+-		["待机", animations.idle],
+-		["转向", animations.turn],
+-		["拖拽", animations.drag],
+-		["点击回应", animations.clicks],
+-		["移动", animations.moves.actions.map((m) => m.name)]
++		["Ожидание", animations.idle],
++		["Поворот", animations.turn],
++		["Перетаскивание", animations.drag],
++		["Реакция на клик", animations.clicks],
++		["Перемещение", animations.moves.actions.map((m) => m.name)]
+ 	];
+ 	for (const [label, pool] of pools) if (pool.length) groups.push({
+ 		label,
+@@ -1312,7 +1312,7 @@ function buildMenuTree(animations) {
+ 	}
+ 	if (!groups.length) return [];
+ 	return [{
+-		label: "动作",
++		label: "Действия",
+ 		children: groups
+ 	}];
+ }
+@@ -1367,7 +1367,7 @@ function buildMemeBranch(source, thumbOf) {
+ 	const leaf$1 = (name) => memeLeaf(name, thumbOf);
+ 	const groups = [];
+ 	if (chat.length > 0) groups.push({
+-		label: "纳入对话的配图",
++		label: "Картинки для диалога",
+ 		children: chat.map(leaf$1)
+ 	});
+ 	if (other.length > 0) groups.push({
+@@ -1376,7 +1376,7 @@ function buildMemeBranch(source, thumbOf) {
+ 	});
+ 	if (groups.length === 0) return null;
+ 	return {
+-		label: "配图",
++		label: "Картинки",
+ 		children: groups
+ 	};
+ }
+@@ -2617,8 +2617,8 @@ function createHearHold(hooks) {
+ 
+ //#endregion
+ //#region src/shared/chat/hotkey.ts
+-const CHAT_HOTKEY_HINT = "L 键";
+-const CAPTURE_HOTKEY_HINT = "S 键";
++const CHAT_HOTKEY_HINT = "клавиша L";
++const CAPTURE_HOTKEY_HINT = "клавиша S";
+ function isChatHotkey(e) {
+ 	return isBareKey(e, "l");
+ }
+@@ -3564,7 +3564,7 @@ function reduceBubbleHold(state, event) {
+ 
+ //#endregion
+ //#region src/shared/sleep-hotkey.ts
+-const SLEEP_HOTKEY_HINT = "Z 键";
++const SLEEP_HOTKEY_HINT = "клавиша Z";
+ function isSleepHotkey(e) {
+ 	return isBareKey(e, "z");
+ }
+@@ -4082,9 +4082,9 @@ function fold(className, children) {
+ function createTodoPanelParts() {
+ 	const root = element("div", "dsh-pet-todo");
+ 	root.setAttribute("role", "dialog");
+-	root.setAttribute("aria-label", "待办事项");
++	root.setAttribute("aria-label", "Задачи");
+ 	const head = element("div", "dsh-pet-todo-head");
+-	const title = element("span", "dsh-pet-todo-title", "待办事项");
++	const title = element("span", "dsh-pet-todo-title", "Задачи");
+ 	const count = element("span", "dsh-pet-todo-count", "0 项未完成");
+ 	count.setAttribute("aria-live", "polite");
+ 	const closeButton = element("button", "dsh-pet-todo-close", "✕");
+@@ -4425,7 +4425,7 @@ function createTodoPanel(options = {}) {
+ 
+ //#endregion
+ //#region src/shared/todo/hotkey.ts
+-const TODO_HOTKEY_HINT = "D 键";
++const TODO_HOTKEY_HINT = "клавиша D";
+ function isTodoHotkey(e) {
+ 	return isBareKey(e, "d");
+ }
