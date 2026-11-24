@@ -234,6 +234,7 @@ git -c core.autocrlf=false apply -p1 patches/local-sapi-edge-ts.patch
 git -c core.autocrlf=false apply -p1 patches/local-sapi-route-ts.patch
 git -c core.autocrlf=false apply -p1 patches/local-piper.patch
 git -c core.autocrlf=false apply -p1 patches/speech-fixes.patch
+git -c core.autocrlf=false apply -p1 patches/work-status-waiting-voice.patch
 ```
 
 `local-sapi*` сгенерированы от состояния «русские голоса уже добавлены», `local-piper.patch` — уже

@@ -1,0 +1,19 @@
+warning: in the working copy of 'old/runtime/electron-helper/events.js', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'new/runtime/electron-helper/events.js', LF will be replaced by CRLF the next time Git touches it
+diff --git a/runtime/electron-helper/events.js b/runtime/electron-helper/events.js
+index 84de386..8a97180 100644
+--- a/runtime/electron-helper/events.js
++++ b/runtime/electron-helper/events.js
+@@ -80,8 +80,10 @@ PetSprite.prototype.onWorkTick = function onWorkTick(snapshot, tick) {
+       : undefined;
+   this.workText = (snapshot && snapshot.task) || configuredText || null;
+   const terminal = state === 'success' || state === 'error';
+-  // Озвучиваем финал задачи: терминальные статусы (успех/ошибка) проговариваем вслух.
+-  if (stateChanged && terminal && configuredText && typeof S.speakIfEnabled === "function") {
++  // Ожидание подтверждения тоже озвучиваем: пузырь без звука — половина сигнала.
++  const voiced = terminal || state === 'waiting';
++  // Озвучиваем финал задачи и ожидание подтверждения: промежуточные статусы молчат.
++  if (stateChanged && voiced && configuredText && typeof S.speakIfEnabled === "function") {
+     S.speakIfEnabled(configuredText);
+   }
+   // 气泡点亮/收起只在状态变化时动作：同状态后续 tick 不重新点亮已自动收起的终态气泡，否则会被反复弹回。
