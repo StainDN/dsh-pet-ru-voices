@@ -5,8 +5,8 @@
  * Две правки, обе — про то, что слышно:
  *   1. Перед синтезом из текста убираются ролевые *действия*, тильды и markdown-маркеры
  *      (иначе голос читает «звёздочка», «тильда» и обрывки действий).
- *   2. Терминальный статус задачи (success / error) проговаривается фразой из workStatusTexts —
- *      раньше в конце задачи показывался только пузырь, без звука.
+ *   2. Статус задачи проговаривается фразой из workStatusTexts: финал (success / error) и ожидание
+ *      подтверждения (waiting) — раньше в эти моменты показывался только пузырь, без звука.
  *
  * Идемпотентно, с бэкапом. После установки нужен перезапуск helper'а (или DSH).
  *
@@ -185,15 +185,27 @@ function main() {
     }
   }
 
-  // 3) озвучка терминального статуса (events.js)
+  // 3) озвучка статуса: финал задачи и ожидание подтверждения (events.js)
   {
     const file = files.events;
     const text = readFileSync(file, 'utf8');
     if (!text.includes('S.speakIfEnabled')) {
       const anchor = '  this.workText = (snapshot && snapshot.task) || configuredText || null;\n  const terminal = state === \'success\' || state === \'error\';\n';
       if (!text.includes(anchor)) throw new Error('events.js: не найден якорь workText/terminal');
-      const addition = '  // Озвучиваем финал задачи: терминальные статусы (успех/ошибка) проговариваем вслух.\n  if (stateChanged && terminal && configuredText && typeof S.speakIfEnabled === "function") {\n    S.speakIfEnabled(configuredText);\n  }\n';
-      addPlan(file, text.replace(anchor, anchor + addition), 'озвучка финала задачи');
+      const addition =
+        '  // Озвучиваем финал задачи и ожидание подтверждения: пузырь без звука — половина сигнала.\n' +
+        '  const voiced = terminal || state === \'waiting\';\n' +
+        '  if (stateChanged && voiced && configuredText && typeof S.speakIfEnabled === "function") {\n' +
+        '    S.speakIfEnabled(configuredText);\n' +
+        '  }\n';
+      addPlan(file, text.replace(anchor, anchor + addition), 'озвучка финала задачи и ожидания подтверждения');
+    } else if (text.includes('stateChanged && terminal && configuredText') && !text.includes("state === 'waiting'")) {
+      // Установка пропатчена старой версией скрипта (озвучивался только финал) — добавляем waiting.
+      const next = text.replace(
+        'if (stateChanged && terminal && configuredText',
+        "if (stateChanged && (terminal || state === 'waiting') && configuredText",
+      );
+      addPlan(file, next, 'озвучка ожидания подтверждения (апгрейд старого патча)');
     } else {
       console.log('events.js: уже пропатчен');
     }
